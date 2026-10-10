@@ -1,0 +1,15 @@
+{
+  "name": "chat-reader",
+  "version": "1.0.0",
+  "description": "Google Chat の新着メッセージを読み上げる Chrome 拡張機能",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "icons": "node scripts/generate-icons.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test --test-timeout=10000 tests/*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.2"
+  }
+}

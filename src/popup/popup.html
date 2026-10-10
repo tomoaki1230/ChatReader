@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChatReader 設定</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="app-header">
+    <img src="../icons/icon32.png" alt="" width="24" height="24">
+    <h1>ChatReader</h1>
+    <label class="switch-label" for="enabled">読み上げ</label>
+    <label class="switch" title="読み上げ ON/OFF">
+      <input type="checkbox" id="enabled">
+      <span class="slider"></span>
+    </label>
+  </header>
+
+  <!-- 音声 -->
+  <section class="card">
+    <h2>音声</h2>
+    <label class="field">
+      <span class="label">声の種類</span>
+      <select id="voiceName"><option value="">既定（日本語のローカル音声）</option></select>
+    </label>
+    <p class="hint" id="voiceHint">外部へ送信しない、パソコン内の音声のみ表示しています。</p>
+    <div class="sliders">
+      <label class="slider-row"><span>音量</span><input type="range" id="volume" min="0" max="1" step="0.05"><output id="volumeValue"></output></label>
+      <label class="slider-row"><span>速度</span><input type="range" id="rate" min="0.5" max="3" step="0.1"><output id="rateValue"></output></label>
+      <label class="slider-row"><span>高さ</span><input type="range" id="pitch" min="0" max="2" step="0.1"><output id="pitchValue"></output></label>
+    </div>
+    <div class="row">
+      <input type="text" id="testText" value="読み上げのテストです。" aria-label="テスト文">
+      <button id="testButton" type="button">試聴</button>
+      <button id="stopButton" type="button" class="secondary">停止</button>
+    </div>
+  </section>
+
+  <!-- 読み方 -->
+  <section class="card">
+    <h2>読み方</h2>
+    <p class="example" aria-live="polite">例: <span id="speechExample"></span></p>
+    <label class="check"><input type="checkbox" id="readSpaceName"> スペース名を読む</label>
+    <label class="check"><input type="checkbox" id="readSender"> 送信者名を読む</label>
+    <label class="check indent"><input type="checkbox" id="addHonorific"> 名前に「さん」を付ける</label>
+    <div class="sliders">
+      <label class="slider-row wide"><span>最大文字数</span><input type="range" id="maxLength" min="20" max="1000" step="10"><output id="maxLengthValue"></output></label>
+    </div>
+  </section>
+
+  <!-- 読み上げるメッセージ -->
+  <section class="card">
+    <h2>読み上げるメッセージ</h2>
+    <label class="field">
+      <span class="label">開いていないスペースの新着</span>
+      <select id="otherSpaces">
+        <option value="full">本文まで読む（通知が出る時）</option>
+        <option value="nameOnly">スペース名だけ知らせる</option>
+        <option value="off">読まない</option>
+      </select>
+    </label>
+    <p class="note" id="notifyNote">本文まで読むには、Google Chat のデスクトップ通知を ON にしてください。OFF の時や通知が出ない時は、スペース名だけを知らせます。</p>
+    <label class="check"><input type="checkbox" id="readSystemMessages"> スペースの更新情報（招待・参加など）</label>
+    <label class="check"><input type="checkbox" id="readWhenFocused"> Chat を表示している時も読む</label>
+    <label class="check"><input type="checkbox" id="readOwnMessages"> 自分のメッセージも読む</label>
+    <label class="field indent">
+      <span class="label">自分の表示名（任意）</span>
+      <input type="text" id="ownName" placeholder="例: 山田 太郎">
+    </label>
+    <p class="hint indent">別の端末から送った自分のメッセージの判定に使います。</p>
+  </section>
+
+  <!-- メンション -->
+  <section class="card">
+    <h2>メンション（@名前）</h2>
+    <label class="check"><input type="checkbox" id="skipMentions"> @名前 を読まない</label>
+    <label class="check indent"><input type="checkbox" id="announceMentionAll"> 「@全員」は「全員宛て」と伝える</label>
+    <p class="hint indent" id="mentionNote" title="メンションだけのメッセージは「メンションのみ」と読みます（@名前 を読む設定の時はそのまま読みます）。">名前に空白が入る場合（例: @山田 太郎）、画面上にその名前が無いと最初の空白までしか除けず、一部が読まれることがあります。</p>
+  </section>
+
+  <!-- 診断 -->
+  <details class="diag" id="diagPanel">
+    <summary>診断 <span id="diagSummary" class="hint-inline"></span></summary>
+
+    <details class="sub" id="diagStatus">
+      <summary>動作状況</summary>
+      <p class="status-title">開いているスペースの監視</p>
+      <dl id="status" class="status"><dt>状態</dt><dd>Google Chat を開くと表示されます</dd></dl>
+      <p class="status-title">開いていないスペースの監視</p>
+      <dl id="otherStatus" class="status"><dt>状態</dt><dd>Google Chat を開くと表示されます</dd></dl>
+      <div class="row">
+        <button id="relearnButton" type="button" class="secondary">セレクタを再学習</button>
+        <button id="resetButton" type="button" class="secondary">学習結果をリセット</button>
+      </div>
+    </details>
+
+    <details class="sub" id="diagLog">
+      <summary>診断ログ（新しい順）</summary>
+      <div class="row">
+        <button id="copyLogButton" type="button" class="secondary">コピー</button>
+        <button id="clearLogButton" type="button" class="secondary">クリア</button>
+        <span id="copyResult" class="hint-inline"></span>
+      </div>
+      <ol id="debugLog" class="log"><li>まだ記録はありません</li></ol>
+    </details>
+
+    <details class="sub" id="diagDump">
+      <summary>DOM 構造の診断</summary>
+      <p class="hint">画面構造を出力します。本文や名前は「○」で伏せ字になります。</p>
+      <div class="row">
+        <button id="dumpButton" type="button" class="secondary">構造を取得</button>
+        <button id="copyDumpButton" type="button" class="secondary">コピー</button>
+        <span id="dumpResult" class="hint-inline"></span>
+      </div>
+      <textarea id="domDump" class="dump" readonly placeholder="Google Chat を開いた状態で「構造を取得」を押してください"></textarea>
+    </details>
+  </details>
+
+  <script src="../shared/settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

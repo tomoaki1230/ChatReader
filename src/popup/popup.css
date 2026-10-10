@@ -1,0 +1,109 @@
+/* ChatReader 設定画面 */
+
+/* ---- 色 ---- */
+:root {
+  --bg: #f1f3f4;
+  --card: #ffffff;
+  --fg: #1f1f1f;
+  --muted: #5f6368;
+  --line: #dadce0;
+  --accent: #1a73e8;
+  --accent-fg: #ffffff;
+  --panel: #f8f9fa;
+  --warn: #e37400;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202124;
+    --card: #292a2d;
+    --fg: #e8eaed;
+    --muted: #9aa0a6;
+    --line: #3c4043;
+    --accent: #8ab4f8;
+    --accent-fg: #202124;
+    --panel: #303134;
+    --warn: #fdd663;
+  }
+}
+
+/* ---- 全体 ---- */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  width: 380px;
+  max-width: 100%;
+  padding: 12px;
+  font: 13px/1.5 system-ui, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+/* オプションページ（タブで開いた時）は中央に寄せる */
+@media (min-width: 600px) {
+  body { margin: 24px auto; }
+}
+
+.app-header { display: flex; align-items: center; gap: 8px; margin: 0 2px 10px; }
+.app-header h1 { flex: 1; font-size: 16px; margin: 0; }
+.switch-label { color: var(--muted); font-size: 12px; cursor: pointer; }
+
+.card { background: var(--card); border-radius: 10px; padding: 10px 12px 6px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.card h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+
+/* ---- 入力 ---- */
+.field { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.label { display: flex; justify-content: space-between; color: var(--fg); }
+.check { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; cursor: pointer; }
+.check:has(input:disabled) { color: var(--muted); cursor: default; }
+.indent { margin-left: 22px; }
+select, input[type="text"] {
+  width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--card); color: var(--fg); font: inherit;
+}
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+output { color: var(--muted); font-variant-numeric: tabular-nums; }
+.sliders { margin-bottom: 6px; }
+/* 名前・つまみ・値を 1 行に並べる */
+.slider-row { display: grid; grid-template-columns: 2.6em 1fr 3.6em; align-items: center; gap: 8px; margin-bottom: 4px; }
+.slider-row.wide { grid-template-columns: 5.2em 1fr 4.4em; }
+.slider-row output { text-align: right; white-space: nowrap; }
+
+.row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.row input[type="text"] { flex: 1; min-width: 0; }
+button {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid var(--accent);
+  background: var(--accent); color: var(--accent-fg); font: inherit; cursor: pointer; white-space: nowrap;
+}
+button.secondary { background: transparent; color: var(--accent); }
+
+/* ---- 補足表示 ---- */
+.hint { margin: -2px 0 8px; color: var(--muted); font-size: 11px; }
+.hint-inline { color: var(--muted); font-size: 11px; font-weight: normal; }
+.note { margin: -2px 0 8px; padding: 6px 8px; font-size: 11px; color: var(--muted); background: var(--panel); border-radius: 6px; }
+.note.warn { color: var(--fg); border-left: 3px solid var(--warn); }
+.example { margin: 0 0 8px; padding: 6px 8px; background: var(--panel); border-radius: 6px; font-size: 12px; color: var(--muted); }
+.example span { color: var(--fg); }
+/* 字下げ（.hint / .note の余白指定より後に置く） */
+.hint.indent, .note.indent, .field.indent { margin-left: 22px; }
+
+/* ---- ON/OFF スイッチ ---- */
+.switch { position: relative; width: 36px; height: 20px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; inset: 0; background: var(--line); border-radius: 20px; cursor: pointer; transition: .2s; }
+.slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: .2s; }
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider::before { transform: translateX(16px); }
+
+/* ---- 診断 ---- */
+details summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--muted); padding: 2px 0; }
+details.diag { padding: 2px 4px; }
+details.sub { margin: 6px 0 0 10px; }
+details.sub[open] > summary { margin-bottom: 6px; }
+.status-title { margin: 0 0 2px; font-size: 11px; color: var(--muted); }
+.status { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 8px; padding: 8px; background: var(--card); border-radius: 6px; }
+.status dt { color: var(--muted); }
+.status dd { margin: 0; word-break: break-all; font-family: ui-monospace, monospace; font-size: 12px; }
+.log { list-style: none; margin: 0 0 8px; padding: 6px 8px; max-height: 220px; overflow-y: auto; background: var(--card); border-radius: 6px; font: 11px/1.5 ui-monospace, monospace; }
+.log li { word-break: break-all; border-bottom: 1px solid var(--line); padding: 2px 0; }
+.log li:last-child { border-bottom: none; }
+.log time { color: var(--muted); margin-right: 6px; }
+.dump { width: 100%; height: 160px; font: 11px/1.4 ui-monospace, monospace; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; white-space: pre; }

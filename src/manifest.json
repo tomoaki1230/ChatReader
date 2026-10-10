@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "ChatReader - Google Chat 読み上げ",
+  "short_name": "ChatReader",
+  "version": "1.0.0",
+  "description": "Google Chat の新着メッセージを音声で読み上げます。音量・速度・声の種類を変更でき、DOM 変更にも自動追従します。",
+  "permissions": [
+    "tts",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "ChatReader",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "popup/popup.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.google.com/*"
+      ],
+      "js": [
+        "content/notifyHook.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://chat.google.com/*"
+      ],
+      "js": [
+        "shared/settings.js",
+        "content/core.js",
+        "content/learner.js",
+        "content/tracker.js",
+        "content/unreadWatcher.js",
+        "content/domDump.js",
+        "content/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "minimum_chrome_version": "111"
+}
