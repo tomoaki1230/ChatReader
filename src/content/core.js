@@ -221,6 +221,14 @@
     return body || MENTION_ONLY;
   }
 
+  // 名前がメールアドレスの時は「@」より前だけを読む（実画面: 名前の無いアカウントはメールアドレスで表示される）
+  const EMAIL_RE = /([A-Za-z0-9._%+-]+)@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+  function speakableName(name) {
+    const t = normalizeText(name);
+    return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(t) ? t.split('@')[0] : t;
+  }
+
   // スペースの更新情報（メンバーの招待・参加など）
   // 実機: 「スペースの更新情報: [Tomoaki Bessho] さんが 太郎 を招待しました」の名前部分が送信者として切り離される
   const SYSTEM_PREFIX_RE = /^(スペースの更新情報|space updates?)\s*[:：]\s*/i;
@@ -232,9 +240,10 @@
   // 見出しを除き、切り離された名前を文に戻す（「Tomoaki Bessho さんが 太郎 を招待しました」）
   function formatSystemMessage(sender, text) {
     let t = normalizeText(text).replace(SYSTEM_PREFIX_RE, '');
-    const who = normalizeText(sender);
+    const who = speakableName(sender);
     if (who && /^さん/.test(t)) t = who + ' ' + t;
-    return normalizeText(t);
+    // 文中のメールアドレス（招待された人など）も「@」より前だけにする
+    return normalizeText(t.replace(EMAIL_RE, '$1'));
   }
 
   // 最大文字数で切る（文字単位。絵文字などのサロゲートペアを途中で切らない）
@@ -248,8 +257,8 @@
     const text = normalizeText(message.text);
     if (!text) return '';
     const body = truncate(text, settings.maxLength);
-    const sender = normalizeText(message.sender);
-    const space = normalizeText(message.space);
+    const sender = speakableName(message.sender);
+    const space = speakableName(message.space);
     const parts = [];
     // スペース名（DM はスペース名 = 相手の名前のため重ねて読まない）
     if (settings.readSpaceName && space && space !== sender) parts.push(space);
@@ -267,7 +276,9 @@
 
   // 通知の読み上げ文: 「スペース名、送信者、本文」（DM は「送信者、本文」）
   function buildNotificationSpeech(title, body, settings) {
-    const { sender, space } = parseNotificationTitle(title);
+    const parsed = parseNotificationTitle(title);
+    const sender = speakableName(parsed.sender);
+    const space = speakableName(parsed.space);
     const text = normalizeText(body);
     const parts = [];
     if (space && settings.readSpaceName) parts.push(space);
@@ -347,6 +358,7 @@
     buildSelectorCandidates,
     messageIdOf,
     buildSpeechText,
+    speakableName,
     isSystemMessage,
     formatSystemMessage,
     truncate,

@@ -28,11 +28,10 @@ function message({ id, sender, text, ts }) {
 function topic(m) {
   return `<c-wiz data-topic-id="${m.id}"><div jsname="oaLnEd">${message(m)}</div><div class="replies"></div></c-wiz>`;
 }
+// 左側一覧・ホーム画面の項目は実際の画面と同じ構造の部品を使う
+const real = require('./fixtures/chatDom.js');
 function navItem(gid, name, ts, presence, unread) {
-  // 実機では未読のスペースは名前が太字になり、未読数のバッジが付く
-  return `<span role="listitem" jsname="CmABtb" data-group-id="${gid}" data-display-timestamp="${ts}">`
-    + `<span>未読</span>${presence ? `<span>${presence}</span>` : ''}<span style="font-weight:${unread ? 700 : 400}">${name}</span>`
-    + (unread ? '<span>3</span>' : '') + '</span>';
+  return real.navItem(gid, name, ts, { presence, bold: unread, type: gid.startsWith('dm/') ? 'ダイレクト メッセージ' : 'スペース' });
 }
 
 const T0 = Date.now() - 5 * 60 * 1000;
@@ -45,12 +44,17 @@ const SPACES = {
 async function openChat(t, settings, opts = {}) {
   const startGid = opts.start || 'space/A';
   const nav = Object.entries(SPACES).map(([gid, s]) => navItem(gid, s.name, T0 + 10, gid.startsWith('dm/') ? 'オンライン' : '', gid === 'space/B')).join('');
+  // ホーム画面（/app/home）: メッセージ一覧（role="main"）が無く、会話一覧にプレビューが出る
+  const home = Object.entries(SPACES).map(([gid, s]) => real.homeCard(gid, s.name, T0 + 10, { sender: s.history[0].sender, body: s.history[0].text, unread: false })).join('');
+  const center = opts.home
+    ? `<div class="home">${home}</div><div id="list"></div>`
+    : `<div role="main" data-group-id="${startGid}" aria-label="${SPACES[startGid].name}"><div id="list">${SPACES[startGid].history.map(topic).join('')}</div></div>`;
   const dom = new JSDOM(`<!doctype html><html><body>
     <header id="gb"><a href="/home" aria-label="ホーム"></a></header>
     <div class="nav">${opts.lateNav ? '' : nav}</div>
-    <div role="main" data-group-id="${startGid}" aria-label="${SPACES[startGid].name}"><div id="list">${SPACES[startGid].history.map(topic).join('')}</div></div>
+    ${center}
     <div id="box" contenteditable="true"></div></body></html>`,
-  { url: 'https://chat.google.com/app/chat/' + startGid.split('/')[1], runScripts: 'outside-only', pretendToBeVisual: true });
+  { url: 'https://chat.google.com/app/' + (opts.home ? 'home' : 'chat/' + startGid.split('/')[1]), runScripts: 'outside-only', pretendToBeVisual: true });
   const w = dom.window;
   t.after(() => w.close());
   const spoken = [];
@@ -113,6 +117,16 @@ async function openChat(t, settings, opts = {}) {
     requestRelearn() { for (const fn of changeListeners) fn({ relearnRequest: { newValue: Date.now() } }, 'local'); },
     renderNav() { doc.querySelector('.nav').innerHTML = nav; },
     setNavTs(gid, ts) { doc.querySelector(`.nav [data-group-id="${gid}"]`).setAttribute('data-display-timestamp', String(ts)); },
+    // ホーム画面の会話一覧で、新着によりプレビューが変わる（Chat は時刻・未読・プレビューを更新する）
+    homeArrive(gid, ts, sender, body) {
+      page.setNavTs(gid, ts);
+      const card = doc.querySelector(`.home [data-group-id="${gid}"]`);
+      card.setAttribute('data-display-timestamp', String(ts));
+      card.setAttribute('data-is-unread', 'true');
+      card.querySelector('[data-absolute-timestamp]').setAttribute('data-absolute-timestamp', String(ts));
+      card.querySelector('[jsname="ok3btb"]').innerHTML = `<span jsname="rJxwpd">${sender}:</span>${body}`;
+    },
+    setPreviewSender(gid, sender) { doc.querySelector(`.home [data-group-id="${gid}"] [jsname="rJxwpd"]`).textContent = sender + ':'; },
     notify(title, body) { w.eval(`new Notification(${JSON.stringify(title)}, { body: ${JSON.stringify(body)} })`); },
     switchTo(gid) {
       w.history.pushState({}, '', '/app/chat/' + gid.split('/')[1]);
@@ -359,6 +373,41 @@ scenario('シナリオ20: 自分の表示名を設定するとその名前の投
   p.addTopic({ id: 'y2', sender: '太郎', text: '他人の投稿' });
   await wait(400);
   assert.deepEqual(p.spoken, ['テスト2、太郎、他人の投稿']);
+});
+
+scenario('シナリオ21: ホーム画面では通知が出なくてもプレビューから送信者と本文を読む（名前の読み込みを待つ）', async (t) => {
+  const p = await openChat(t, {}, { home: true });
+  await p.startup();
+  p.homeArrive('space/B', Date.now(), '名前を読み込み中...', 'ビルドが完了しました');
+  await wait(1400);
+  p.setPreviewSender('space/B', '次郎');
+  await wait(2500);
+  p.homeArrive('dm/taro', Date.now() + 1, '太郎', 'DMの本文');
+  await wait(2800);
+  assert.deepEqual(p.spoken, ['開発、次郎、ビルドが完了しました', '太郎、DMの本文']);
+});
+
+scenario('シナリオ22: ホーム画面で通知とプレビューの両方が届いても 1 回だけ読む／「スペース名だけ」なら本文は読まない', async (t) => {
+  const [a, b] = await Promise.all([openChat(t, {}, { home: true }), openChat(t, { otherSpaces: 'nameOnly' }, { home: true })]);
+  await Promise.all([a.startup(), b.startup()]);
+  for (const p of [a, b]) {
+    p.notify('次郎 (開発)', '同じ内容です');
+    p.homeArrive('space/B', Date.now(), '次郎', '同じ内容です');
+  }
+  await wait(2800);
+  assert.deepEqual(a.spoken, ['開発、次郎、同じ内容です']);
+  assert.deepEqual(b.spoken, ['開発 に新着メッセージ']);
+});
+
+scenario('シナリオ23: 本文欄の無い更新情報は直前の送信者を借りず、メールアドレスの名前は「@」より前だけ読む', async (t) => {
+  const p = await openChat(t, {});
+  await p.startup();
+  p.list().insertAdjacentHTML('beforeend', '<c-wiz data-topic-id="ev1"><div jsname="Ne3sFf" role="group">'
+    + '<span>sato@example.com さんは 太郎 さんから </span><a href="#">招待</a><span> されましたが、まだ参加していません</span></div></c-wiz>');
+  await wait(400);
+  p.addTopic({ id: 'em1', sender: 'sato@example.com', text: 'よろしくお願いします' });
+  await wait(400);
+  assert.deepEqual(p.spoken, ['テスト2、sato さんは 太郎 さんから 招待 されましたが、まだ参加していません', 'テスト2、sato、よろしくお願いします']);
 });
 
 describe('通しシナリオ', { concurrency: true, timeout: 120000 }, () => {

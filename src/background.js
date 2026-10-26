@@ -128,7 +128,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         logSpoken(msg.space, msg.sender);
-        if (msg.source === 'notify' && !allowBurst()) {
+        if ((msg.source === 'notify' || msg.source === 'preview') && !allowBurst()) {
           addDebug('読み上げ省略（通知が一度に大量に届いたため）: ' + msg.text);
           return;
         }
@@ -153,8 +153,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           addDebug('未読お知らせ省略（一度に大量に届いたため）: ' + msg.name);
           return;
         }
-        addDebug('読み上げ: ' + msg.name + ' に新着メッセージ');
-        speak(msg.name + ' に新着メッセージ');
+        addDebug('読み上げ: ' + (msg.label || msg.name) + ' に新着メッセージ');
+        speak((msg.label || msg.name) + ' に新着メッセージ');
       }, UNREAD_DELAY_MS);
       sendResponse({ ok: true });
       return false;

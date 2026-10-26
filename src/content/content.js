@@ -9,7 +9,7 @@
   window.__chatReaderStarted = true;
 
   const { normalizeSettings } = globalThis.ChatReaderSettings;
-  const { buildSpeechText, buildNotificationSpeech, parseNotificationTitle, prepareBody, isSystemMessage, formatSystemMessage, OwnMessageDetector, normalizeText } = globalThis.ChatReaderCore;
+  const { buildSpeechText, buildNotificationSpeech, parseNotificationTitle, prepareBody, isSystemMessage, formatSystemMessage, speakableName, OwnMessageDetector, normalizeText } = globalThis.ChatReaderCore;
   const { ChatDomTracker } = globalThis.ChatReaderTracker;
   const { UnreadWatcher } = globalThis.ChatReaderUnreadWatcher;
   const { buildDomDump } = globalThis.ChatReaderDomDump;
@@ -48,7 +48,7 @@
 
   function onMessage(message) {
     if (!isContextAlive()) { tracker.stop(); unreadWatcher.stop(); return; }
-    if (isSystemMessage(message.text)) {
+    if (message.system || isSystemMessage(message.text)) {
       onSystemMessage(message);
       return;
     }
@@ -202,13 +202,37 @@
   const unreadWatcher = new UnreadWatcher(document, {
     log: debug,
     onStatus: (s) => { otherStatus.nav = s; writeOtherStatus(); },
-    onUnread: ({ name, count, reason }) => {
+    onUnread: ({ name, count, reason, getPreview }) => {
       debug('B 未読検出: ' + name + '（' + reason + (count ? '・' + count + ' 件' : '') + '）');
       if (!settings.enabled || !settings.announceUnread) { debug('→ 読み上げ OFF、または「開いていないスペースの新着」が「読まない」のため省略'); return; }
       if (!settings.readWhenFocused && isUserLooking()) { debug('→ Chat 表示中のため省略'); return; }
-      send({ type: 'CR_UNREAD', name });
+      // ホーム画面ではプレビュー（送信者・本文）を読める。「本文まで読む」設定の時だけ使う
+      if (settings.otherSpaces === 'full' && getPreview) announceWithPreview(name, getPreview, 0);
+      else send({ type: 'CR_UNREAD', name, label: speakableName(name) });
     }
   });
+
+  // プレビューの送信者名は「名前を読み込み中...」から遅れて表示されるため、最大 3 秒待つ
+  const PREVIEW_NAME_WAIT_MS = 500;
+  const PREVIEW_NAME_RETRY = 6;
+
+  function announceWithPreview(name, getPreview, attempt) {
+    const p = getPreview();
+    if (p && p.senderPending && attempt < PREVIEW_NAME_RETRY) {
+      setTimeout(() => announceWithPreview(name, getPreview, attempt + 1), PREVIEW_NAME_WAIT_MS);
+      return;
+    }
+    if (!p) {
+      send({ type: 'CR_UNREAD', name, label: speakableName(name) });
+      return;
+    }
+    const sender = p.sender;
+    const own = Boolean(sender) && (sender === '自分' || selfNames.has(sender) || sender === normalizeText(settings.ownName));
+    debug('B プレビュー: ' + (sender || '(送信者不明)') + ' / ' + p.text + (own ? '（自分）' : ''));
+    if (own && !settings.readOwnMessages) { debug('→ 自分のメッセージのため省略'); return; }
+    const text = buildSpeechText({ space: name, sender, text: prepareBody(p.text, settings, knownNames()) }, settings);
+    send({ type: 'CR_SPEAK', text, dedupeKey: p.text, sender, space: name, source: 'preview' });
+  }
 
   // ---- 自分の送信内容の記録（自分のメッセージ判定用） ----
 

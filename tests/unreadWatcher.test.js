@@ -181,3 +181,57 @@ test('実機構造: メッセージ一覧の無いホーム画面でも、スペ
   await wait(40);
   assert.deepEqual(t.hits, ['テスト']);
 });
+
+// ---- 実際の画面（ホーム画面の保存ページ）の構造での確認 ----
+const real = require('./fixtures/chatDom.js');
+
+test('実画面: 名前は <bdi>（左側一覧）・名前欄（ホーム画面）から取り、未読・在席状況・種別・ボタン名を混ぜない', () => {
+  const t = setup(`<div>${real.navItem('space/A', '定例会', 1)}${real.navItem('dm/x', '佐藤 一郎', 1, { presence: '会議中（予定あり）', type: 'ダイレクト メッセージ' })}</div>`
+    + `<div class="home">${real.homeCard('space/B', '営業チーム', 1, { sender: '鈴木', body: 'お疲れ様です' })}</div>`);
+  t.w.start();
+  assert.deepEqual(t.w.items.map((el) => t.w.nameOf(el)), ['定例会', '佐藤 一郎', '営業チーム']);
+});
+
+test('実画面: 同じスペースが左側一覧とホーム画面の両方にあっても 1 件として扱い、知らせるのは 1 回', async () => {
+  const t = setup(`<div>${real.navItem('space/A', '定例会', 1)}</div><div class="home">${real.homeCard('space/A', '定例会', 1, { sender: '鈴木', body: '前の話' })}</div>`);
+  const payloads = [];
+  t.w.onUnread = (u) => payloads.push(u);
+  t.w.start();
+  assert.equal(t.w.getStatus().navItems, 1, 'スペース単位の件数');
+  const ts = String(Date.now() + 1000);
+  t.$('.nav, div').querySelector('[data-group-id="space/A"]').setAttribute('data-display-timestamp', ts);
+  const card = t.$('.home [data-group-id="space/A"]');
+  card.setAttribute('data-display-timestamp', ts);
+  card.querySelector('[data-absolute-timestamp]').setAttribute('data-absolute-timestamp', ts);
+  card.querySelector('[jsname="ok3btb"]').innerHTML = '<span jsname="rJxwpd">鈴木:</span>新着です';
+  await wait(40);
+  assert.equal(payloads.length, 1);
+  assert.equal(payloads[0].name, '定例会');
+  assert.deepEqual(payloads[0].getPreview(), { sender: '鈴木', text: '新着です', senderPending: false });
+});
+
+test('実画面: プレビューの送信者が「名前を読み込み中...」の間は送信者未確定として返す', async () => {
+  const t = setup(`<div class="home">${real.homeCard('space/A', '定例会', 1, { sender: '名前を読み込み中...', body: 'あれあれ' })}</div>`);
+  t.w.start();
+  const el = t.$('[data-group-id="space/A"]');
+  assert.deepEqual(t.w.previewOf(el, 1), { sender: '', text: 'あれあれ', senderPending: true });
+});
+
+test('実画面: プレビューの時刻が最新時刻と違う（古いプレビュー）なら本文を使わない', () => {
+  const t = setup(`<div class="home">${real.homeCard('space/A', '定例会', 200, { sender: '鈴木', body: '古い話', previewTs: 100 })}</div>`);
+  t.w.start();
+  assert.equal(t.w.previewOf(t.$('[data-group-id="space/A"]'), 200), null);
+});
+
+test('実画面: ホーム画面で既読（data-is-unread="false"）のまま時刻だけ進んだ場合（別端末からの自分の投稿など）は知らせない', async () => {
+  const t = setup(`<div class="home">${real.homeCard('space/A', '定例会', 1, { unread: false, sender: '自分', body: 'a' })}</div>`);
+  t.w.start();
+  t.$('[data-group-id="space/A"]').setAttribute('data-display-timestamp', String(Date.now() + 1000));
+  await wait(40);
+  assert.deepEqual(t.hits, []);
+});
+
+test('実画面: 「未読にする」ボタンや「未読フィルタを切り替え」は未読の表示とみなさない', () => {
+  const t = setup(`<div class="home">${real.homeCard('space/A', '定例会', 1, { unread: false })}</div>`);
+  assert.equal(t.w.hasUnreadLabel(t.$('[data-group-id="space/A"]')), false);
+});

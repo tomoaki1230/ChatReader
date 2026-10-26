@@ -1,8 +1,8 @@
 /*
  * ChatReader 未読監視（左側のスペース / チャット一覧）
  *
- * 開いていないスペースに新着が届くと、一覧の項目に未読数バッジ・「未読」ラベル・太字が付く。
- * その変化を検知して「○○ に新着メッセージ」を通知する（本文は取得できない）。
+ * 開いていないスペースに新着が届くと、一覧の項目の最新メッセージ時刻（data-display-timestamp）が進む。
+ * その変化を検知して知らせる。ホーム画面では最新メッセージのプレビュー（送信者・本文）も取得できる。
  * 項目の特定は role 属性ベースで行い、見つからなければ learner の構造推定で補う。
  */
 (function (root) {
@@ -11,7 +11,7 @@
   const isNode = typeof module !== 'undefined' && module.exports;
   const core = isNode ? require('./core.js') : root.ChatReaderCore;
   const learner = isNode ? require('./learner.js') : root.ChatReaderLearner;
-  const { collectSegments, isNoiseSegment, normalizeText, safeQueryAll } = core;
+  const { collectSegments, isNoiseSegment, normalizeText, safeQueryAll, textOf } = core;
 
   const NAV_ROOT_SELECTOR = '[role="navigation"], nav';
   // 実機（2026-10）の Google Chat: span[role="listitem"][data-group-id="space/…"][data-display-timestamp="…"]
@@ -20,6 +20,14 @@
   const EXCLUDE_AREA_SELECTOR = 'header, [role="banner"], #gb';
   const ITEM_SELECTOR = '[role="treeitem"], [role="listitem"], [role="option"], [role="link"], a[href]';
   const UNREAD_LABEL_RE = /未読|unread/i;
+  // 未読の表示ではない「未読」を含むラベル（実画面: 「未読にする」ボタン、「未読フィルタを切り替え」スイッチ）
+  const NOT_UNREAD_LABEL_RE = /未読にする|未読フィルタ|mark as unread|unread filter/i;
+  // 実画面の目印: ホーム画面の名前欄・プレビュー（送信者・本文）
+  const HOME_NAME_SELECTOR = '[jsname="VYJYmb"]';
+  const PREVIEW_BOX_SELECTOR = '[jsname="JzStRd"]';
+  const PREVIEW_BODY_SELECTOR = '[jsname="ok3btb"]';
+  const PREVIEW_SENDER_SELECTOR = '[jsname="rJxwpd"]';
+  const SENDER_LOADING_RE = /読み込み中|loading/i;
   // 項目名ではない断片（未読表示、DM 相手の在席状況など）。実機では DM の項目に「オンライン」が名前より前に入る
   const NON_NAME_SEGMENT_RE = /^((未読|unread)(\s*(メッセージ|messages?)?\s*(あり|\d+\s*件?)?)?|既読|オンライン|オフライン|退席中|離席中|不在|応答不可|取り込み中|通話中|会議中|発表中|プレゼンテーション中|ミュート|ミュート中|ピン留め|ピン留め済み|online|offline|away|busy|do not disturb|in a call|in a meeting|presenting|active|inactive|muted|pinned)$/i;
   const COUNT_IN_LABEL_RE = /(\d{1,4})\s*件?\s*(の)?\s*未読|未読\s*(メッセージ)?\s*(\d{1,4})|(\d{1,4})\s*unread|unread[^0-9]{0,20}(\d{1,4})/i;
@@ -54,6 +62,7 @@
       this.scanned = false;
       this.knownTs = new Map(); // 項目ごとに見た最新メッセージ時刻（一覧から一時的に消えても保持）
       this.startedAt = 0;
+      this.groupCount = 0;
     }
 
     start() {
@@ -143,11 +152,18 @@
       }
       this.items = items;
       this.itemSource = source;
+      this.groupCount = new Set(items.map((el) => this.groupIdOf(el) || this.nameOf(el))).size;
     }
 
     // ---- 項目の状態 ----
 
     nameOf(el) {
+      // 実画面の目印: ホーム画面の名前欄、左側一覧の <bdi>（プレビュー内の <bdi> は送信者なので除く）
+      const homeName = el.querySelector(HOME_NAME_SELECTOR);
+      if (homeName && textOf(homeName)) return textOf(homeName).slice(0, 80);
+      const bdis = safeQueryAll(el, 'bdi').filter((b) => !b.closest(PREVIEW_BOX_SELECTOR)).map(textOf).filter(Boolean);
+      if (bdis.length) return Array.from(new Set(bdis)).join('、').slice(0, 80);
+      // 目印が無い場合の予備: 先頭から意味のある断片を推測
       const label = normalizeText(el.getAttribute('aria-label'));
       const seg = collectSegments(el).find((s) => !isNoiseSegment(s) && !NON_NAME_SEGMENT_RE.test(s));
       if (seg) return seg.slice(0, 80);
@@ -172,8 +188,51 @@
     }
 
     hasUnreadLabel(el) {
-      if (UNREAD_LABEL_RE.test(el.getAttribute('aria-label') || '')) return true;
-      return safeQueryAll(el, '[aria-label]').some((c) => UNREAD_LABEL_RE.test(c.getAttribute('aria-label') || ''));
+      const isUnreadLabel = (x) => {
+        const label = x.getAttribute('aria-label') || '';
+        if (!UNREAD_LABEL_RE.test(label) || NOT_UNREAD_LABEL_RE.test(label)) return false;
+        // ボタン・スイッチ（操作）のラベルは状態の表示ではない
+        return !x.closest('button, [role="button"], [role="switch"], [role="menuitem"]');
+      };
+      return isUnreadLabel(el) || safeQueryAll(el, '[aria-label]').some(isUnreadLabel);
+    }
+
+    // ホーム画面の未読状態（data-is-unread）。属性が無ければ null
+    unreadAttrOf(el) {
+      const v = el.getAttribute('data-is-unread');
+      return v === null ? null : v === 'true';
+    }
+
+    /**
+     * ホーム画面の最新メッセージのプレビュー。{ sender, text, senderPending } または null
+     * ts を渡した場合、プレビューの時刻が一致しなければ（古いプレビュー）null
+     */
+    previewOf(el, ts) {
+      const body = el.querySelector(PREVIEW_BODY_SELECTOR);
+      if (!body) return null;
+      const tsEl = el.querySelector('[data-absolute-timestamp]');
+      const previewTs = tsEl ? Number(tsEl.getAttribute('data-absolute-timestamp')) : 0;
+      if (ts && previewTs && previewTs !== ts) return null;
+      const senderEl = body.querySelector(PREVIEW_SENDER_SELECTOR);
+      const senderRaw = senderEl ? textOf(senderEl) : '';
+      const all = textOf(body);
+      const text = normalizeText(senderRaw && all.startsWith(senderRaw) ? all.slice(senderRaw.length) : all.replace(senderRaw, ''));
+      if (!text) return null;
+      let sender = normalizeText(senderRaw.replace(/\s*[:：]\s*$/, ''));
+      const senderPending = SENDER_LOADING_RE.test(sender);
+      if (senderPending) sender = '';
+      return { sender, text, senderPending };
+    }
+
+    // スペース ID のプレビュー（呼び出し時点の DOM から取得。名前の読み込みを待つ時に繰り返し呼ばれる）
+    previewFor(key) {
+      const ts = this.knownTs.get(key) || 0;
+      for (const el of safeQueryAll(this.doc, '[data-group-id]')) {
+        if (el.getAttribute('data-group-id') !== key) continue;
+        const p = this.previewOf(el, ts);
+        if (p) return p;
+      }
+      return null;
     }
 
     // 名前部分の文字の太さ（未読は太字で表示される）
@@ -213,13 +272,26 @@
     }
 
     scan() {
-      const snapshot = this.items.filter((el) => el.isConnected).map((el) => {
+      const perElement = this.items.filter((el) => el.isConnected).map((el) => {
         const name = this.nameOf(el);
         return {
-          el, name, key: this.groupIdOf(el) || name, ts: this.timestampOf(el),
+          el, name, key: this.groupIdOf(el) || name, ts: this.timestampOf(el), unreadAttr: this.unreadAttrOf(el),
           count: this.countOf(el), label: this.hasUnreadLabel(el), weight: this.weightOf(el, name), active: this.isActive(el)
         };
       }).filter((s) => s.name);
+      // 同じスペースが左側一覧とホーム画面の両方にある場合は 1 件にまとめる（名前は左側一覧を優先）
+      const byKey = new Map();
+      for (const s of perElement) {
+        const g = byKey.get(s.key);
+        if (!g) { byKey.set(s.key, { ...s }); continue; }
+        g.ts = Math.max(g.ts, s.ts);
+        g.count = Math.max(g.count, s.count);
+        g.label = g.label || s.label;
+        g.weight = Math.max(g.weight, s.weight);
+        g.active = g.active || s.active;
+        if (s.unreadAttr !== null) g.unreadAttr = g.unreadAttr === null ? s.unreadAttr : (g.unreadAttr || s.unreadAttr);
+      }
+      const snapshot = Array.from(byKey.values());
 
       // ほぼ全項目が太字なら太字は未読の目印として使わない
       const boldCount = snapshot.filter((s) => s.weight >= 600).length;
@@ -247,6 +319,9 @@
         // 「8 割以上が太字なら太字を使わない」判定の切り替わりで誤検知する（実機で、読み上げ済みのスペースを後から再通知した）
         const flagIncreased = this.itemSource !== 'group-id' && Boolean(prev && (s.count > prev.count || (unread && !prev.unread)));
         const increased = tsIncreased || flagIncreased;
+        // ホーム画面で既読と表示されている（別端末からの自分の投稿・既に読んだ等）。
+        // 既読表示の更新が時刻より遅れて来ることがあるため、時刻は記録せず、未読になった時点で改めて判定する
+        if (increased && s.unreadAttr === false) continue;
         if (s.ts > (knownTs || 0)) this.knownTs.set(s.key, s.ts);
         if (!increased || s.active) continue;
         const last = this.lastAnnounced.get(s.key) || 0;
@@ -255,7 +330,8 @@
         this.announceCount++;
         this.lastAnnounceAt = now;
         const reason = tsIncreased ? '最新時刻の更新' : (s.count > (prev ? prev.count : 0) ? '未読数の増加' : '未読表示');
-        this.onUnread({ name: s.name, count: s.count, reason });
+        const key = s.key;
+        this.onUnread({ name: s.name, count: s.count, reason, key, getPreview: () => this.previewFor(key) });
       }
       this.states = next;
       this.onStatus(this.getStatus());
@@ -265,7 +341,7 @@
       let unread = 0;
       for (const s of this.states.values()) if (s.unread) unread++;
       return {
-        navItems: this.items.length,
+        navItems: this.groupCount,
         navSource: this.itemSource,
         unreadItems: unread,
         announceCount: this.announceCount,

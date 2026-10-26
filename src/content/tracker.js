@@ -328,8 +328,12 @@
           this.markSeen(el);
           continue;
         }
-        const sender = this.findSender(el);
-        const text = extractMessageText(el, { sender, bodySelector: this.profile && this.profile.body });
+        // 本文欄も投稿時刻も無いメッセージはスペースの更新情報（実画面: 「…さんから招待されましたが、まだ参加していません」等）。
+        // 送信者は要素内からのみ取る（直前のメッセージの送信者を借りると「自分」と誤認する）
+        const bodySel = this.profile && this.profile.body;
+        const isEvent = Boolean(bodySel) && !el.querySelector(bodySel) && !this.messageTimeOf(el);
+        const sender = isEvent ? (this.profile.sender ? senderIn(el, this.profile.sender) : '') : this.findSender(el);
+        const text = extractMessageText(el, { sender, bodySelector: bodySel });
         if (!text) {
           this.scheduleRetry(el);
           continue;
@@ -337,7 +341,7 @@
         this.markSeen(el);
         this.emptyStreak = 0;
         this.lastMessageAt = this.now();
-        this.onMessage({ sender, text, element: el, profileName: this.profile ? this.profile.name : '' });
+        this.onMessage({ sender, text, element: el, system: isEvent, profileName: this.profile ? this.profile.name : '' });
       }
     }
 

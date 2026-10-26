@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ChatReader - Google Chat 読み上げ",
   "short_name": "ChatReader",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Google Chat の新着メッセージを音声で読み上げます。音量・速度・声の種類を変更でき、DOM 変更にも自動追従します。",
   "permissions": [
     "tts",
