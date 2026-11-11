@@ -254,9 +254,9 @@ scenario('シナリオ11: 開いていない DM の通知は「太郎、本文�
 scenario('シナリオ12: 自分宛てのメンションは除いて読む（画面・通知とも）', async (t) => {
   const p = await openChat(t, {});
   await p.startup();
-  p.addTopic({ id: 'm12', sender: '太郎', text: '<span data-name="Tomoaki Bessho" data-member-id="user/me">@Tomoaki Bessho</span> 確認お願いします' });
+  p.addTopic({ id: 'm12', sender: '太郎', text: '<span data-name="鈴木 一郎" data-member-id="user/me">@鈴木 一郎</span> 確認お願いします' });
   await wait(400);
-  p.notify('太郎 (開発)', '@Tomoaki Bessho 資料を送りました');
+  p.notify('太郎 (開発)', '@鈴木 一郎 資料を送りました');
   await wait(100);
   assert.deepEqual(p.spoken, ['テスト2、太郎、確認お願いします', '開発、太郎、資料を送りました']);
 });
@@ -317,13 +317,13 @@ function systemMessage(id, parts) {
 
 scenario('シナリオ17: スペースの更新情報（招待・参加）を自然な文で読む／設定 OFF なら読まない', async (t) => {
   await Promise.all([
-    [{}, ['テスト2、Tomoaki Bessho さんが 太郎 を招待しました', 'テスト2、太郎 さんが参加しました']],
+    [{}, ['テスト2、鈴木 一郎 さんが 太郎 を招待しました', 'テスト2、太郎 さんが参加しました']],
     [{ readSystemMessages: false }, []]
   ].map(async ([settings, expected]) => {
     const p = await openChat(t, settings);
     await p.startup();
     p.list().insertAdjacentHTML('beforeend', systemMessage('sys1',
-      '<span data-member-id="user/me" data-name="Tomoaki Bessho">Tomoaki Bessho</span><span>さんが</span><span data-name="太郎">太郎</span><span>を招待しました</span>'));
+      '<span data-member-id="user/me" data-name="鈴木 一郎">鈴木 一郎</span><span>さんが</span><span data-name="太郎">太郎</span><span>を招待しました</span>'));
     await wait(400);
     p.list().insertAdjacentHTML('beforeend', systemMessage('sys2', '<span data-member-id="user/taro" data-name="太郎">太郎</span><span>さんが参加しました</span>'));
     await wait(400);
@@ -334,14 +334,14 @@ scenario('シナリオ17: スペースの更新情報（招待・参加）を自
 scenario('シナリオ18: 自分の参加（更新情報）は、自分のメッセージを読まない設定なら読まない', async (t) => {
   await Promise.all([
     [{}, ['テスト2、太郎 さんが参加しました']],
-    [{ readOwnMessages: true }, ['テスト2、自分、送ります', 'テスト2、Tomoaki Bessho さんが参加しました', 'テスト2、太郎 さんが参加しました']]
+    [{ readOwnMessages: true }, ['テスト2、自分、送ります', 'テスト2、鈴木 一郎 さんが参加しました', 'テスト2、太郎 さんが参加しました']]
   ].map(async ([settings, expected]) => {
     const p = await openChat(t, settings);
     await p.startup();
     // 自分の投稿（表示は「自分」、data-name に本名）から本名を覚える
-    p.list().insertAdjacentHTML('beforeend', topic({ id: 'me1', sender: '自分', text: '送ります', ts: Date.now() }).replace('data-name="自分"', 'data-name="Tomoaki Bessho"'));
+    p.list().insertAdjacentHTML('beforeend', topic({ id: 'me1', sender: '自分', text: '送ります', ts: Date.now() }).replace('data-name="自分"', 'data-name="鈴木 一郎"'));
     await wait(400);
-    p.list().insertAdjacentHTML('beforeend', systemMessage('j1', '<span data-member-id="user/me" data-name="Tomoaki Bessho">Tomoaki Bessho</span><span>さんが参加しました</span>'));
+    p.list().insertAdjacentHTML('beforeend', systemMessage('j1', '<span data-member-id="user/me" data-name="鈴木 一郎">鈴木 一郎</span><span>さんが参加しました</span>'));
     await wait(400);
     p.list().insertAdjacentHTML('beforeend', systemMessage('j2', '<span data-member-id="user/taro" data-name="太郎">太郎</span><span>さんが参加しました</span>'));
     await wait(400);

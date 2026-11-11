@@ -117,3 +117,13 @@ test('診断ログ（本文を含む）はディスクに残らない storage.se
   assert.ok(b.sessionWrites.some((v) => Array.isArray(v.debugLog) && v.debugLog.some((e) => e.text === '本文を含むログ')));
   assert.ok(!b.localWrites.some((v) => 'debugLog' in v));
 });
+
+test('No.2: スレッドへの返信の通知で本文を読んだスペースは、「新着メッセージ」のお知らせを省略する', { timeout: 5000 }, async () => {
+  const core = require('../src/content/core.js');
+  const b = load({});
+  const p = core.parseNotificationTitle('このスペースのスレッド: 「定例会」');
+  b.send({ type: 'CR_SPEAK', text: '定例会、本文です', dedupeKey: '本文です', sender: p.sender, space: p.space, source: 'notify' });
+  b.send({ type: 'CR_UNREAD', name: '定例会' });
+  await wait(1700);
+  assert.deepEqual(b.spoken, ['定例会、本文です']);
+});

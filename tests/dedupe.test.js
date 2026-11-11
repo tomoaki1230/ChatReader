@@ -32,3 +32,11 @@ test('別の人・別のスペースの同じ文面は重複扱いしない（�
   assert.equal(r.checkAndAdd('おはようございます', '太郎', ''), true, 'DM の通知などスペース不明');
   assert.equal(r.checkAndAdd('おはようございます', '', ''), true, '送信者不明');
 });
+
+test('No.3: 送信者が分からない通知（スレッドへの返信）は、画面の同じ本文と重複とみなす', () => {
+  const core = require('../src/content/core.js');
+  const r = new RecentKeys();
+  assert.equal(r.checkAndAdd('本文です', '佐藤', '定例会'), false);
+  const p = core.parseNotificationTitle('このスペースのスレッド: 「定例会」');
+  assert.equal(r.checkAndAdd('本文です', p.sender, p.space), true);
+});

@@ -33,8 +33,12 @@
   // 学習時に意味のない（値が毎回変わる）属性として扱うもの
   const VOLATILE_ATTRS = new Set(['data-message-id', 'data-id', 'data-topic-id', 'data-tooltip-id', 'data-ved']);
 
+  // 目に見えない方向制御文字（U+202A〜202E、U+2066〜2069）。デスクトップ通知では名前の前後などに入ることがあり、
+  // 残っているとメンションの判定（「@」の直前が空白か）などが外れるため取り除く
+  const BIDI_CONTROL_RE = /[\u202a-\u202e\u2066-\u2069]/g;
+
   function normalizeText(s) {
-    return String(s == null ? '' : s).replace(/[\s​‎‏﻿]+/g, ' ').trim();
+    return String(s == null ? '' : s).replace(BIDI_CONTROL_RE, '').replace(/[\s\u200b\u200e\u200f\ufeff]+/g, ' ').trim();
   }
 
   function isTimestampLike(s) {
@@ -60,11 +64,13 @@
     return false;
   }
 
-  function shouldSkipElement(el) {
+  function shouldSkipElement(el, opts) {
     if (SKIP_TAGS.has(el.tagName.toUpperCase())) return true;
     if (el.hidden) return true;
     if (el.getAttribute('aria-hidden') === 'true') return true;
     const role = el.getAttribute('role');
+    // スペースの更新情報では文中のリンク（「メッセージを固定」等）が role="button" になっているため読む
+    if (role === 'button' && opts && opts.keepButtons) return false;
     if (role && SKIP_ROLES.has(role)) return true;
     const style = el.getAttribute('style');
     if (style && /display\s*:\s*none|visibility\s*:\s*hidden/i.test(style)) return true;
@@ -72,21 +78,21 @@
   }
 
   // 要素内のテキストを断片単位で収集する（innerText はレイアウトを伴い重く、jsdom でも未実装のため）
-  function collectSegments(el, out) {
+  function collectSegments(el, out, opts) {
     const segments = out || [];
     for (const node of el.childNodes) {
       if (node.nodeType === 3) {
         const t = normalizeText(node.nodeValue);
         if (t) segments.push(t);
       } else if (node.nodeType === 1) {
-        if (shouldSkipElement(node)) continue;
+        if (shouldSkipElement(node, opts)) continue;
         if (node.tagName === 'IMG') {
           // 絵文字画像は alt を読む
           const alt = normalizeText(node.getAttribute('alt'));
           if (alt && alt.length <= 8) segments.push(alt);
           continue;
         }
-        collectSegments(node, segments);
+        collectSegments(node, segments, opts);
       }
     }
     return segments;
@@ -104,7 +110,7 @@
       // 本文要素の中には時刻・UI 文言は無いため、送信中の表示以外はそのまま読む（「15:00」「3分」等の本文を消さない）
       return normalizeText(collectSegments(target).filter((seg) => !isPendingSegment(seg)).join(' '));
     }
-    const segments = collectSegments(messageEl);
+    const segments = collectSegments(messageEl, [], { keepButtons: options.keepButtons });
     const sender = normalizeText(options.sender);
     const kept = segments.filter((seg) => !isNoiseSegment(seg) && seg !== sender);
     return normalizeText(kept.join(' '));
@@ -191,7 +197,8 @@
 
   // 「@名前」の除去。既知の名前（空白を含む「@山田 太郎」等）を長い順に除き、残りは「@」から区切りまでを除く
   // 「@」の直前が文頭・空白・句読点の時のみメンション（メールアドレス a@example.com は対象外）
-  const MENTION_TOKEN_RE = /(^|[\s、。,，(（「『])[@＠][^\s@＠、。,，!?！？:：)）」』]+/g;
+  // 「@」の後ろに名前が無い（「@」だけの）場合も除く
+  const MENTION_TOKEN_RE = /(^|[\s、。,，(（「『])[@＠][^\s@＠、。,，!?！？:：)）」』]*/g;
 
   function stripMentions(text, knownNames) {
     let t = String(text == null ? '' : text);
@@ -230,14 +237,14 @@
   }
 
   // スペースの更新情報（メンバーの招待・参加など）
-  // 実機: 「スペースの更新情報: [Tomoaki Bessho] さんが 太郎 を招待しました」の名前部分が送信者として切り離される
+  // 実機: 「スペースの更新情報: [鈴木 一郎] さんが 太郎 を招待しました」の名前部分が送信者として切り離される
   const SYSTEM_PREFIX_RE = /^(スペースの更新情報|space updates?)\s*[:：]\s*/i;
 
   function isSystemMessage(text) {
     return SYSTEM_PREFIX_RE.test(normalizeText(text));
   }
 
-  // 見出しを除き、切り離された名前を文に戻す（「Tomoaki Bessho さんが 太郎 を招待しました」）
+  // 見出しを除き、切り離された名前を文に戻す（「鈴木 一郎 さんが 太郎 を招待しました」）
   function formatSystemMessage(sender, text) {
     let t = normalizeText(text).replace(SYSTEM_PREFIX_RE, '');
     const who = speakableName(sender);
@@ -268,8 +275,13 @@
   }
 
   // 通知タイトル「送信者 (スペース名)」を分解（DM はタイトル = 送信者のみ）
+  // スレッドへの返信の通知は「このスペースのスレッド: 「スペース名」」の形（送信者はタイトルに無い）
+  const THREAD_TITLE_RE = /^.*(スレッド|thread).*?[:：]\s*[「『"“](.+)[」』"”]$/i;
+
   function parseNotificationTitle(title) {
     const t = normalizeText(title);
+    const thread = t.match(THREAD_TITLE_RE);
+    if (thread) return { sender: '', space: thread[2].trim() };
     const m = t.match(/^(.+?)\s*[(（]([^()（）]+)[)）]$/);
     return m ? { sender: m[1].trim(), space: m[2].trim() } : { sender: t, space: '' };
   }

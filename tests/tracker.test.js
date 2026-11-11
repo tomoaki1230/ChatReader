@@ -345,3 +345,40 @@ test('メッセージ一覧の無い画面では再学習を繰り返さず、�
   await wait(200);
   assert.deepEqual(logs.filter((m) => m.includes('再学習')), []);
 });
+
+// ---- 指摘 No.6: スペースを開いた直後に過去のメッセージが新着として読まれることがある ----
+const realEvent = (id, text) => `<c-wiz data-topic-id="${id}"><div jsname="oaLnEd"><div jsname="Ne3sFf" data-id="${id}"><span>${text}</span></div></div></c-wiz>`;
+
+test('No.6: 投稿時刻の無い更新情報が既読のメッセージより前に遅れて表示されても読まない（別の枠に入った実機構造）', async () => {
+  const t = setup(realMsg('a', '太郎', '既存', Date.now() - 60000));
+  t.tracker.start(null);
+  t.list().insertAdjacentHTML('afterbegin', realEvent('ev0', '花子 さんが参加しました'));
+  await wait(50);
+  assert.deepEqual(t.spoken, []);
+});
+
+test('No.6: スペースを切り替えた直後に投稿時刻の無い更新情報が末尾に遅れて表示されても読まない（一定時間後の新しい更新情報は読む）', async () => {
+  const t = setup(realMsg('a', '太郎', '既存', Date.now() - 60000), { warmupMs: 3000, navQuietMs: 50, eventGraceMs: 300 });
+  t.tracker.start(null);
+  t.tracker.warmupUntil = 0;
+  t.dom.window.history.pushState({}, '', '/app/chat/other');
+  t.list().innerHTML = realMsg('b', '次郎', '別スペースの既存', Date.now() - 60000);
+  await wait(150);
+  append(t.list(), realEvent('ev1', '履歴がオンになっています'));
+  await wait(100);
+  assert.deepEqual(t.spoken, [], '切替直後に遅れて表示された更新情報');
+  await wait(300);
+  append(t.list(), realEvent('ev2', '三郎 さんが参加しました'));
+  await wait(60);
+  assert.deepEqual(t.spoken, ['三郎 さんが参加しました']);
+});
+
+test('No.6: 表示を始めるより前に投稿されたメッセージは、待機時間の後に遅れて表示されても読まない', async () => {
+  const t = setup(realMsg('a', '太郎', '既存', Date.now() - 600000));
+  t.tracker.start(null);
+  append(t.list(), realMsg('late', '花子', '5分前の投稿', Date.now() - 5 * 60 * 1000));
+  await wait(50);
+  append(t.list(), realMsg('new', '次郎', '今の投稿', Date.now()));
+  await wait(50);
+  assert.deepEqual(t.spoken, ['次郎:今の投稿']);
+});

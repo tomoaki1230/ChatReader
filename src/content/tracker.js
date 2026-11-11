@@ -49,6 +49,8 @@
     minTextRatio: 0.5,        // 採用するプロファイルの「本文を持つ要素」の最低割合
     maxSeenIds: 3000,
     maxMessageAgeMs: 10 * 60 * 1000, // 投稿時刻がこれより古いメッセージは新着とみなさない（過去ログ・再描画）
+    eventGraceMs: 10000,             // 画面切替後、投稿時刻の無い要素（更新情報）を過去ログとみなす時間
+    viewSkewMs: 2 * 60 * 1000,       // 表示開始よりこれ以上前の投稿は過去ログ（PC の時計のずれを許容）
     signatureTtlMs: 30 * 60 * 1000,  // 既読メッセージの内容の署名を覚えておく時間（再描画の判定用）
     maxSignatures: 3000
   };
@@ -87,6 +89,8 @@
       this.lastMessageAt = 0;
       this.warmupUntil = 0;
       this.navWarmupEnd = 0;
+      this.viewSince = 0;   // 表示を始めた時刻（起動・画面切替）
+      this.navAt = 0;       // 最後に画面を切り替えた時刻
       this.pendingRetries = new WeakMap();
       this.seenSigs = new Map(); // 内容の署名 → 記録時刻（ID も時刻も無いメッセージが再描画された時に再度読まないため）
       this.healFailing = false;  // 学習の失敗が続いている間はログを繰り返さない
@@ -105,6 +109,7 @@
       // 実機で確認済みの組み込みを優先し、学習結果は組み込みが使えない時に使う
       this.candidates = [...BUILTIN_PROFILES, learnedProfile].filter((p) => p && p.message && !this.badSelectors.has(p.message));
       this.lastUrl = this.currentUrl();
+      this.viewSince = this.now();
       this.warmupUntil = this.now() + this.opts.warmupMs;
       this.selectProfile();
       this.baseline();
@@ -273,6 +278,8 @@
         // 過去ログの描画が落ち着くまで（追加が navQuietMs 途切れるまで、最長 warmupMs）は既存扱い
         this.navWarmupEnd = this.now() + this.opts.warmupMs;
         this.warmupUntil = this.now() + this.opts.navQuietMs;
+        this.viewSince = this.now();
+        this.navAt = this.now();
       }
 
       if (!this.profile) {
@@ -333,7 +340,7 @@
         const bodySel = this.profile && this.profile.body;
         const isEvent = Boolean(bodySel) && !el.querySelector(bodySel) && !this.messageTimeOf(el);
         const sender = isEvent ? (this.profile.sender ? senderIn(el, this.profile.sender) : '') : this.findSender(el);
-        const text = extractMessageText(el, { sender, bodySelector: bodySel });
+        const text = extractMessageText(el, { sender, bodySelector: bodySel, keepButtons: isEvent });
         if (!text) {
           this.scheduleRetry(el);
           continue;
@@ -414,8 +421,21 @@
     // 過去ログの読み込み・再描画か
     // 投稿時刻が分かれば古さで判定、分からなければ既読メッセージより前に挿入されたかで判定
     isHistoryInsert(el) {
+      const now = this.now();
       const ts = this.messageTimeOf(el);
-      if (ts) return ts < this.now() - this.opts.maxMessageAgeMs;
+      if (ts) {
+        if (ts < now - this.opts.maxMessageAgeMs) return true;
+        // 表示を始める前の投稿（スペースを開いた後に遅れて表示された過去のメッセージ）
+        return Boolean(this.viewSince) && ts < this.viewSince - this.opts.viewSkewMs;
+      }
+      // スペースの更新情報（本文欄も投稿時刻も無い）: 画面切替の直後に現れたものは過去ログ
+      const bodySel = this.profile && this.profile.body;
+      const isEvent = Boolean(bodySel) && !el.querySelector(bodySel);
+      if (isEvent && this.navAt && now - this.navAt < this.opts.eventGraceMs) return true;
+      // 既読のメッセージより前にある（実機では 1 メッセージずつ別の枠に入るため、兄弟ではなく文書順で判定）
+      const all = this.findMessages(this.doc);
+      const idx = all.indexOf(el);
+      if (idx >= 0 && all.slice(idx + 1).some((m) => this.isSeen(m))) return true;
       for (const base of [el, el.parentElement]) {
         if (!base) continue;
         let sib = base.nextElementSibling;

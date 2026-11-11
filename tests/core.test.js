@@ -145,7 +145,7 @@ test('本文要素がある場合は「15:00」「3分」のような本文も�
 test('スペースの更新情報: 見出しを除き、切り離された名前を文に戻す', () => {
   assert.equal(core.isSystemMessage('スペースの更新情報: さんが参加しました'), true);
   assert.equal(core.isSystemMessage('スペースの更新情報について相談'), false);
-  assert.equal(core.formatSystemMessage('Tomoaki Bessho', 'スペースの更新情報: さんが 太郎 を招待しました'), 'Tomoaki Bessho さんが 太郎 を招待しました');
+  assert.equal(core.formatSystemMessage('鈴木 一郎', 'スペースの更新情報: さんが 太郎 を招待しました'), '鈴木 一郎 さんが 太郎 を招待しました');
   assert.equal(core.formatSystemMessage('太郎', 'スペースの更新情報: さんが参加しました'), '太郎 さんが参加しました');
   assert.equal(core.formatSystemMessage('', 'スペースの更新情報: 履歴がオンになっています'), '履歴がオンになっています');
 });
@@ -156,7 +156,33 @@ test('全員宛てのメンション: 設定 ON なら「全員宛て」と伝�
   assert.equal(core.prepareBody('@all 確認お願いします', on, []), '全員宛て、確認お願いします');
   assert.equal(core.prepareBody('＠everyone', on, []), '全員宛て');
   assert.equal(core.prepareBody('@山田 太郎 明日', on, ['山田 太郎']), '明日', '個人宛ては従来どおり');
-  assert.equal(core.prepareBody('メールは a@all.com', on, []), 'メールは a@all.com');
+  assert.equal(core.prepareBody('メールは a@all.example.com', on, []), 'メールは a@all.example.com');
   assert.equal(core.prepareBody('@全員 zen zen', { skipMentions: true, announceMentionAll: false }, []), 'zen zen');
   assert.equal(core.prepareBody('@全員 zen zen', { skipMentions: false, announceMentionAll: true }, []), '@全員 zen zen', 'メンションを読む設定ならそのまま');
+});
+
+// ---- 指摘（v1.1.1）の再発防止 ----
+
+test('No.1: スレッドへの返信の通知タイトル「このスペースのスレッド: 「スペース名」」はスペース名として扱う', () => {
+  assert.deepEqual(core.parseNotificationTitle('このスペースのスレッド: 「定例会」'), { sender: '', space: '定例会' });
+  const s = { readSender: true, addHonorific: false, readSpaceName: true, maxLength: 200 };
+  assert.equal(core.buildNotificationSpeech('このスペースのスレッド: 「定例会」', '本文です', s), '定例会、本文です');
+  assert.deepEqual(core.parseNotificationTitle('太郎 (テスト2)'), { sender: '太郎', space: 'テスト2' }, '従来の形は変わらない');
+});
+
+test('No.4: 本文が「@」だけ（後ろに名前が無い）でもメンションとして除く', () => {
+  assert.equal(core.prepareBody('@', { skipMentions: true }, []), 'メンションのみ');
+  assert.equal(core.prepareBody('@ 確認お願いします', { skipMentions: true }, []), '確認お願いします');
+  assert.equal(core.prepareBody('メールは a@example.com まで', { skipMentions: true }, []), 'メールは a@example.com まで');
+});
+
+test('通知に含まれる目に見えない方向制御文字（U+2068 等）でメンションの判定が外れない', () => {
+  assert.equal(core.prepareBody('⁨@全員⁩ 確認してください', { skipMentions: true }, []), '確認してください');
+  assert.equal(core.normalizeText('‪太郎‬'), '太郎');
+});
+
+test('No.5: スペースの更新情報では、ボタンになっている文言も読む（通常のメッセージでは読まない）', () => {
+  const m = el('<div><span data-name="山田 花子">山田 花子</span><span> さんがボードに</span><span role="button">メッセージを固定</span><span>しました</span></div>');
+  assert.equal(core.extractMessageText(m, { sender: '山田 花子', keepButtons: true }), 'さんがボードに メッセージを固定 しました');
+  assert.equal(core.extractMessageText(m, { sender: '山田 花子' }), 'さんがボードに しました');
 });
